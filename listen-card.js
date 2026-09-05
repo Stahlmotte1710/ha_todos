@@ -15,7 +15,7 @@
  *   icons:
  *     todo.einkaufsliste: mdi:cart-outline
  */
-const LISTEN_CARD_VERSION = "1.0.0";
+const LISTEN_CARD_VERSION = "1.0.1";
 
 class ListenCard extends HTMLElement {
   setConfig(config) {
@@ -47,11 +47,9 @@ class ListenCard extends HTMLElement {
   async _fetchItems(eid) {
     if (!this._hass) return;
     try {
-      const r = await this._hass.callService(
-        "todo", "get_items", {}, { entity_id: eid }, false, true
-      );
-      const items = (r && r.response && r.response[eid] && r.response[eid].items) || [];
-      this._items[eid] = items;
+      // Zuverlässig über die WebSocket-API (liefert { items: [...] })
+      const r = await this._hass.callWS({ type: "todo/item/list", entity_id: eid });
+      this._items[eid] = (r && r.items) || [];
       this._renderList(eid);
     } catch (e) {
       console.error("Listen-Card: Konnte Einträge nicht laden für", eid, e);
