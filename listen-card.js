@@ -16,7 +16,7 @@
  *   icons:
  *     todo.einkaufsliste: mdi:cart-outline
  */
-const LISTEN_CARD_VERSION = "1.2.0";
+const LISTEN_CARD_VERSION = "1.3.0";
 
 class ListenCard extends HTMLElement {
   setConfig(config) {
@@ -114,6 +114,8 @@ class ListenCard extends HTMLElement {
       .chip.active ha-icon { color:var(--text-primary-color,#fff); }
       .chip .cnt { font-size:0.8rem; opacity:0.8; }
       .chip .mv { border:none; background:transparent; color:inherit; cursor:pointer; font-size:1rem; padding:0 2px; line-height:1; }
+      .chip .mv.del ha-icon { --mdc-icon-size:16px; vertical-align:middle; }
+      .chip .mv.del:hover { color: var(--error-color,#db4437); }
       .tool { flex:0 0 auto; border:1px solid var(--divider-color); border-radius:18px; padding:6px 10px;
               background:transparent; color:var(--secondary-text-color); cursor:pointer; display:flex; align-items:center; gap:4px; font-size:0.85rem; }
       .tool.on { background:var(--primary-color); border-color:var(--primary-color); color:var(--text-primary-color,#fff); }
@@ -205,7 +207,11 @@ class ListenCard extends HTMLElement {
         right.className = "mv"; right.textContent = "›"; right.title = "nach rechts";
         right.addEventListener("click", (ev) => { ev.stopPropagation(); this._moveList(i, 1); });
         const nm = document.createElement("span"); nm.textContent = this._name(eid);
-        chip.appendChild(left); chip.appendChild(nm); chip.appendChild(right);
+        const del = document.createElement("button");
+        del.className = "mv del"; del.title = "Liste löschen";
+        del.innerHTML = `<ha-icon icon="mdi:trash-can-outline"></ha-icon>`;
+        del.addEventListener("click", (ev) => { ev.stopPropagation(); this._deleteList(eid); });
+        chip.appendChild(left); chip.appendChild(nm); chip.appendChild(del); chip.appendChild(right);
       } else {
         const ic = document.createElement("ha-icon"); ic.setAttribute("icon", this._icon(eid));
         const nm = document.createElement("span"); nm.textContent = this._name(eid);
@@ -215,13 +221,13 @@ class ListenCard extends HTMLElement {
       }
       el.appendChild(chip);
     }
-    // Sortier-Umschalter
-    if (this._order.length > 1) {
+    // Bearbeiten-Umschalter (Reihenfolge ändern + löschen)
+    if (this._order.length >= 1) {
       const tool = document.createElement("button");
       tool.className = "tool" + (this._sortMode ? " on" : "");
       tool.innerHTML = this._sortMode
         ? `<ha-icon icon="mdi:check"></ha-icon><span>Fertig</span>`
-        : `<ha-icon icon="mdi:swap-horizontal"></ha-icon><span>Sortieren</span>`;
+        : `<ha-icon icon="mdi:pencil"></ha-icon><span>Bearbeiten</span>`;
       tool.addEventListener("click", () => this._toggleSort());
       el.appendChild(tool);
     }
@@ -350,6 +356,22 @@ class ListenCard extends HTMLElement {
     } catch (e) {
       console.error("Listen-Card: Liste anlegen fehlgeschlagen", e);
       alert("Liste konnte nicht angelegt werden: " + e);
+    }
+  }
+
+  async _deleteList(eid) {
+    const name = this._name(eid);
+    if (!confirm(`Liste „${name}" wirklich löschen?\nAlle Einträge dieser Liste gehen dabei verloren.`)) return;
+    try {
+      const reg = await this._hass.callWS({ type: "config/entity_registry/get", entity_id: eid });
+      const entryId = reg && reg.config_entry_id;
+      if (!entryId) { alert("Diese Liste lässt sich hier nicht löschen."); return; }
+      await this._hass.callApi("DELETE", "config/config_entries/entry/" + entryId);
+      // Entität verschwindet -> Auto-Modus entfernt den Chip; Auswahl fällt zurück
+      if (this._selected === eid) { this._selected = null; this._saveSelected(); }
+    } catch (e) {
+      console.error("Listen-Card: Liste löschen fehlgeschlagen", e);
+      alert("Liste konnte nicht gelöscht werden: " + e);
     }
   }
 
