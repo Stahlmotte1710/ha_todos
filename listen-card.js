@@ -15,7 +15,7 @@
  *   icons:
  *     todo.einkaufsliste: mdi:cart-outline
  */
-const LISTEN_CARD_VERSION = "1.0.2";
+const LISTEN_CARD_VERSION = "1.0.3";
 
 class ListenCard extends HTMLElement {
   setConfig(config) {
@@ -34,7 +34,7 @@ class ListenCard extends HTMLElement {
     this._hass = hass;
     if (!this._entities) return;
     // (Neu) aufbauen, falls noch nicht gebaut ODER der DOM verloren ging
-    if (!this._built || !this.querySelector("ha-card")) this._build();
+    if (!this._built || !this.shadowRoot || !this.shadowRoot.querySelector("ha-card")) this._build();
     for (const eid of this._entities) {
       const st = hass.states[eid];
       const sig = st ? `${st.state}|${st.last_updated}` : "missing";
@@ -162,9 +162,12 @@ class ListenCard extends HTMLElement {
       this._sections[eid] = { sec, ulAktiv, ulFertig, details, label: summary.querySelector(".label") };
     }
 
-    this.innerHTML = "";
-    this.appendChild(style);
-    this.appendChild(card);
+    // In einen Shadow-DOM rendern -> isoliert, wird von außen (Lovelace/card-mod)
+    // nicht überschrieben. CSS-Variablen des Themes vererben sich hinein.
+    if (!this.shadowRoot) this.attachShadow({ mode: "open" });
+    this.shadowRoot.innerHTML = "";
+    this.shadowRoot.appendChild(style);
+    this.shadowRoot.appendChild(card);
     this._built = true;
 
     // evtl. schon geladene Daten rendern
