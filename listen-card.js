@@ -15,7 +15,7 @@
  *   icons:
  *     todo.einkaufsliste: mdi:cart-outline
  */
-const LISTEN_CARD_VERSION = "1.0.1";
+const LISTEN_CARD_VERSION = "1.0.2";
 
 class ListenCard extends HTMLElement {
   setConfig(config) {
@@ -32,16 +32,29 @@ class ListenCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
-    if (!this._built) this._build();
-    // Nur neu laden, wenn sich die Liste tatsächlich geändert hat
+    if (!this._entities) return;
+    // (Neu) aufbauen, falls noch nicht gebaut ODER der DOM verloren ging
+    if (!this._built || !this.querySelector("ha-card")) this._build();
     for (const eid of this._entities) {
       const st = hass.states[eid];
       const sig = st ? `${st.state}|${st.last_updated}` : "missing";
       if (this._sig[eid] !== sig) {
         this._sig[eid] = sig;
-        this._fetchItems(eid);
+        this._fetchItems(eid); // holt Einträge + rendert
+      } else if (
+        this._items[eid] &&
+        this._sections && this._sections[eid] &&
+        this._sections[eid].ulAktiv.childElementCount === 0
+      ) {
+        // verpassten/verlorenen Render aus dem Cache nachholen
+        this._renderList(eid);
       }
     }
+  }
+
+  connectedCallback() {
+    // Nach dem Einhängen in den DOM sicher (neu) rendern
+    if (this._hass) this.hass = this._hass;
   }
 
   async _fetchItems(eid) {
