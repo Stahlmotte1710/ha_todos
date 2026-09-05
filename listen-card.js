@@ -4,27 +4,31 @@
  * Zeigt eine oder mehrere todo.*-Listen an:
  *   - offene Punkte immer sichtbar (Tipp = abhaken)
  *   - erledigte in einer aufklappbaren Sektion (Standard: eingeklappt)
+ *   - unten: neue Liste anlegen (ohne das eingebaute Panel)
  *
  * Die Daten liegen weiter in den HA-todo-Entitäten – App/Alexa bleiben synchron.
  *
  * Beispiel-Konfiguration:
  *   type: custom:listen-card
- *   entities:
- *     - todo.einkaufsliste
- *     - todo.infuse
+ *   show_all: true            # alle todo.*-Listen automatisch anzeigen
  *   icons:
  *     todo.einkaufsliste: mdi:cart-outline
+ *   # ODER feste Auswahl:
+ *   # entities: [todo.einkaufsliste, todo.infuse]
  */
-const LISTEN_CARD_VERSION = "1.0.3";
+const LISTEN_CARD_VERSION = "1.1.0";
 
 class ListenCard extends HTMLElement {
   setConfig(config) {
-    const ents = config.entities || (config.entity ? [config.entity] : null);
-    if (!ents || !ents.length) {
-      throw new Error("Bitte 'entities' angeben (Liste von todo.*-Objekten).");
-    }
-    this._entities = ents;
     this._config = config;
+    // Auto-Modus: alle todo.*-Listen anzeigen (wenn show_all oder keine entities)
+    this._auto = config.show_all === true || !config.entities;
+    this._entities = config.entities
+      ? [...config.entities]
+      : (config.entity ? [config.entity] : null);
+    if (!this._auto && (!this._entities || !this._entities.length)) {
+      throw new Error("Bitte 'entities' angeben oder 'show_all: true' setzen.");
+    }
     this._items = {};   // entity_id -> [items]
     this._sig = {};     // entity_id -> Signatur für Änderungserkennung
     this._built = false;
@@ -32,35 +36,48 @@ class ListenCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
+
+    // Auto-Modus: aktuelle Liste aller todo.*-Entitäten bestimmen (alphabetisch)
+    if (this._auto) {
+      const all = Object.keys(hass.states)
+        .filter((e) => e.startsWith("todo."))
+        .sort((a, b) => {
+          const na = (hass.states[a].attributes.friendly_name || a).toLowerCase();
+          const nb = (hass.states[b].attributes.friendly_name || b).toLowerCase();
+          return na < nb ? -1 : na > nb ? 1 : 0;
+        });
+      if (!this._entities || this._entities.join(",") !== all.join(",")) {
+        this._entities = all;
+        this._built = false; // Liste der Listen hat sich geändert -> neu aufbauen
+      }
+    }
+
     if (!this._entities) return;
-    // (Neu) aufbauen, falls noch nicht gebaut ODER der DOM verloren ging
     if (!this._built || !this.shadowRoot || !this.shadowRoot.querySelector("ha-card")) this._build();
+
     for (const eid of this._entities) {
       const st = hass.states[eid];
       const sig = st ? `${st.state}|${st.last_updated}` : "missing";
       if (this._sig[eid] !== sig) {
         this._sig[eid] = sig;
-        this._fetchItems(eid); // holt Einträge + rendert
+        this._fetchItems(eid);
       } else if (
         this._items[eid] &&
         this._sections && this._sections[eid] &&
         this._sections[eid].ulAktiv.childElementCount === 0
       ) {
-        // verpassten/verlorenen Render aus dem Cache nachholen
         this._renderList(eid);
       }
     }
   }
 
   connectedCallback() {
-    // Nach dem Einhängen in den DOM sicher (neu) rendern
     if (this._hass) this.hass = this._hass;
   }
 
   async _fetchItems(eid) {
     if (!this._hass) return;
     try {
-      // Zuverlässig über die WebSocket-API (liefert { items: [...] })
       const r = await this._hass.callWS({ type: "todo/item/list", entity_id: eid });
       this._items[eid] = (r && r.items) || [];
       this._renderList(eid);
@@ -74,7 +91,8 @@ class ListenCard extends HTMLElement {
     style.textContent = `
       ha-card { padding: 4px 0 8px; }
       .liste { padding: 0 16px; }
-      .liste:not(:last-child) { border-bottom: 1px solid var(--divider-color); padding-bottom: 8px; margin-bottom: 4px; }
+      .liste:not(:last-child), .neueListe { border-bottom: 1px solid var(--divider-color); }
+      .liste:not(:last-child) { padding-bottom: 8px; margin-bottom: 4px; }
       .kopf { display:flex; align-items:center; gap:8px; font-weight:600; font-size:1.05rem; padding: 14px 0 4px; }
       .kopf ha-icon { color: var(--primary-color); --mdc-icon-size: 22px; }
       .add { display:flex; align-items:center; gap:8px; padding: 2px 0 6px; }
@@ -100,6 +118,14 @@ class ListenCard extends HTMLElement {
       .clear { color:var(--secondary-text-color); font-size:0.8rem; padding:6px 2px 2px;
                cursor:pointer; text-align:right; }
       .clear:hover { color: var(--error-color, #db4437); }
+      .neueListe { display:flex; align-items:center; gap:8px; padding: 12px 16px 4px; }
+      .neueListe > ha-icon { color: var(--secondary-text-color); --mdc-icon-size: 22px; }
+      .neueListe input { flex:1; background:transparent; border:none; border-bottom:1px solid var(--divider-color);
+                         color:var(--primary-text-color); font-size:1rem; padding:6px 2px; outline:none; }
+      .neueListe input:focus { border-bottom-color: var(--primary-color); }
+      .neueListe button { background:none; border:1px solid var(--primary-color); color:var(--primary-color);
+                          border-radius:16px; padding:6px 14px; cursor:pointer; font-size:0.9rem; }
+      .neueListe button:hover { background: var(--primary-color); color: var(--text-primary-color, #fff); }
     `;
 
     const card = document.createElement("ha-card");
@@ -144,7 +170,6 @@ class ListenCard extends HTMLElement {
       details.appendChild(ulFertig);
       details.appendChild(clear);
 
-      // Aktionen
       const doAdd = () => {
         const v = input.value.trim();
         if (v) { this._add(eid, v); input.value = ""; input.focus(); }
@@ -162,15 +187,27 @@ class ListenCard extends HTMLElement {
       this._sections[eid] = { sec, ulAktiv, ulFertig, details, label: summary.querySelector(".label") };
     }
 
-    // In einen Shadow-DOM rendern -> isoliert, wird von außen (Lovelace/card-mod)
-    // nicht überschrieben. CSS-Variablen des Themes vererben sich hinein.
+    // Fußzeile: neue Liste anlegen (nur für Admins – Listen sind Konfigurationseinträge)
+    if (!this._hass.user || this._hass.user.is_admin) {
+      const foot = document.createElement("div");
+      foot.className = "neueListe";
+      foot.innerHTML = `<ha-icon icon="mdi:playlist-plus"></ha-icon>
+        <input type="text" placeholder="Neue Liste…">
+        <button>Anlegen</button>`;
+      const inp = foot.querySelector("input");
+      const b = foot.querySelector("button");
+      const create = () => { const v = inp.value.trim(); if (v) { this._createList(v); inp.value = ""; } };
+      b.addEventListener("click", create);
+      inp.addEventListener("keydown", (e) => { if (e.key === "Enter") create(); });
+      card.appendChild(foot);
+    }
+
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
     this.shadowRoot.innerHTML = "";
     this.shadowRoot.appendChild(style);
     this.shadowRoot.appendChild(card);
     this._built = true;
 
-    // evtl. schon geladene Daten rendern
     for (const eid of this._entities) if (this._items[eid]) this._renderList(eid);
   }
 
@@ -230,9 +267,24 @@ class ListenCard extends HTMLElement {
     setTimeout(() => this._fetchItems(eid), 300);
   }
 
-  getCardSize() { return this._entities.length * 4; }
+  async _createList(name) {
+    try {
+      const flow = await this._hass.callApi("POST", "config/config_entries/flow",
+        { handler: "local_todo", show_advanced_options: false });
+      if (flow && flow.flow_id) {
+        await this._hass.callApi("POST", "config/config_entries/flow/" + flow.flow_id,
+          { todo_list_name: name });
+      }
+      // Die neue todo.*-Entität erscheint kurz darauf -> Auto-Modus baut neu auf.
+    } catch (e) {
+      console.error("Listen-Card: Liste anlegen fehlgeschlagen", e);
+      alert("Liste konnte nicht angelegt werden: " + e);
+    }
+  }
 
-  static getStubConfig() { return { entities: [] }; }
+  getCardSize() { return (this._entities ? this._entities.length : 0) * 4 + 1; }
+
+  static getStubConfig() { return { show_all: true }; }
 }
 
 customElements.define("listen-card", ListenCard);
