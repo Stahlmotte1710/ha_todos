@@ -16,7 +16,7 @@
  *   icons:
  *     todo.einkaufsliste: mdi:cart-outline
  */
-const LISTEN_CARD_VERSION = "1.5.0";
+const LISTEN_CARD_VERSION = "1.6.0";
 
 class ListenCard extends HTMLElement {
   setConfig(config) {
@@ -85,7 +85,9 @@ class ListenCard extends HTMLElement {
 
     // Inhalt der gewählten Liste
     if (this._selected) {
-      if (!this._cur || this._cur.eid !== this._selected) {
+      if (this._detailUid) {
+        // Detailseite offen -> NICHT neu rendern (sonst schließt sich der Datums-Dialog)
+      } else if (!this._cur || this._cur.eid !== this._selected) {
         this._renderSelected(); // Struktur neu + laden
       } else {
         const st = hass.states[this._selected];
@@ -162,6 +164,10 @@ class ListenCard extends HTMLElement {
       li .info { border:none; background:transparent; color:var(--secondary-text-color); cursor:pointer; padding:0 2px; flex:0 0 auto; }
       li .info ha-icon { --mdc-icon-size:20px; }
       li .info:hover { color: var(--primary-color); }
+      li .duebadge { color: var(--secondary-text-color); font-size:0.78rem; flex:0 0 auto; white-space:nowrap; }
+      li .duebadge.overdue { color: var(--error-color,#db4437); }
+      li .rembadge { color: var(--primary-color); flex:0 0 auto; display:flex; align-items:center; }
+      li .rembadge ha-icon { --mdc-icon-size:18px; }
       .detail { padding: 2px 0 6px; }
       .dhead { display:flex; align-items:center; gap:8px; padding:4px 0 8px; }
       .dhead .dback { border:none; background:transparent; color:var(--primary-text-color); cursor:pointer; padding:2px; line-height:1; }
@@ -355,6 +361,24 @@ class ListenCard extends HTMLElement {
     if (done) box.innerHTML = `<ha-icon icon="mdi:check"></ha-icon>`;
     const txt = document.createElement("span"); txt.className = "txt"; txt.textContent = item.summary;
     li.appendChild(box); li.appendChild(txt);
+    if (!done) {
+      // Fällig-Datum anzeigen (rot wenn überfällig)
+      if (item.due) {
+        const due = document.createElement("span"); due.className = "duebadge";
+        const day = String(item.due).slice(0, 10);
+        due.textContent = this._fmtDue(item.due);
+        if (day < new Date().toISOString().slice(0, 10)) due.classList.add("overdue");
+        li.appendChild(due);
+      }
+      // Erinnerungs-Icon anzeigen
+      const meta = this._parseDesc(item.description || "");
+      if (meta.remind) {
+        const rem = document.createElement("span"); rem.className = "rembadge";
+        rem.title = "Erinnerung: " + this._fmtRemind(meta.remind);
+        rem.innerHTML = `<ha-icon icon="mdi:bell-ring-outline"></ha-icon>`;
+        li.appendChild(rem);
+      }
+    }
     // Details-Icon (öffnet Detailseite; verhindert das Abhaken)
     const info = document.createElement("button"); info.className = "info"; info.title = "Details";
     info.innerHTML = `<ha-icon icon="mdi:information-outline"></ha-icon>`;
@@ -415,6 +439,18 @@ class ListenCard extends HTMLElement {
     if (meta.remind) parts.push("Erinnerung: " + meta.remind);
     if (meta.note) parts.push(meta.note);
     return parts.join("\n");
+  }
+  _fmtDue(due) {
+    const s = String(due).slice(0, 10);
+    const p = s.split("-");
+    if (p.length !== 3) return s;
+    const cur = new Date().getFullYear();
+    return p[2] + "." + p[1] + (parseInt(p[0]) !== cur ? "." + p[0] : ".");
+  }
+  _fmtRemind(iso) {
+    const d = new Date(iso);
+    if (isNaN(d)) return iso;
+    return d.toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
   }
 
   _renderDetail(eid, uid) {
