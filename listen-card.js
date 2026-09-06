@@ -16,7 +16,7 @@
  *   icons:
  *     todo.einkaufsliste: mdi:cart-outline
  */
-const LISTEN_CARD_VERSION = "1.4.0";
+const LISTEN_CARD_VERSION = "1.5.0";
 
 class ListenCard extends HTMLElement {
   setConfig(config) {
@@ -32,6 +32,7 @@ class ListenCard extends HTMLElement {
     this._selected = this._loadSelected();
     this._sortMode = false;
     this._itemSort = false;
+    this._detailUid = null;
     this._built = false;
     this._selSig = null;
     this._contentSig = {};
@@ -157,6 +158,23 @@ class ListenCard extends HTMLElement {
       li.sortrow .arrows { display:flex; gap:2px; flex:0 0 auto; }
       li.sortrow .mv { border:none; background:transparent; color:var(--primary-color); cursor:pointer; font-size:1rem; padding:2px 8px; line-height:1; }
       li.sortrow .mv:disabled { color:var(--disabled-text-color,#666); cursor:default; }
+      li .txt { flex:1; }
+      li .info { border:none; background:transparent; color:var(--secondary-text-color); cursor:pointer; padding:0 2px; flex:0 0 auto; }
+      li .info ha-icon { --mdc-icon-size:20px; }
+      li .info:hover { color: var(--primary-color); }
+      .detail { padding: 2px 0 6px; }
+      .dhead { display:flex; align-items:center; gap:8px; padding:4px 0 8px; }
+      .dhead .dback { border:none; background:transparent; color:var(--primary-text-color); cursor:pointer; padding:2px; line-height:1; }
+      .dhead .dback ha-icon { --mdc-icon-size:24px; }
+      .dhead .dtitle { font-weight:600; font-size:1.1rem; }
+      .dfield { display:flex; flex-direction:column; gap:4px; padding:8px 0; }
+      .dfield > span { color:var(--secondary-text-color); font-size:0.85rem; }
+      .dfield input { background:transparent; border:none; border-bottom:1px solid var(--divider-color); color:var(--primary-text-color); font-size:1rem; padding:6px 2px; outline:none; color-scheme: dark light; }
+      .dfield input:focus { border-bottom-color: var(--primary-color); }
+      .dfield .dcreator { color:var(--primary-text-color); font-size:1rem; padding:6px 2px; }
+      .dactions { display:flex; gap:12px; padding-top:14px; align-items:center; }
+      .dactions .dsave { background:var(--primary-color); color:var(--text-primary-color,#fff); border:none; border-radius:18px; padding:8px 20px; cursor:pointer; font-size:0.95rem; }
+      .dactions .ddelete { background:transparent; border:none; color:var(--error-color,#db4437); cursor:pointer; font-size:0.9rem; margin-left:auto; }
 
       .neueListe { display:flex; align-items:center; gap:8px; padding: 12px 16px 0; margin-top:8px;
                    border-top:1px solid var(--divider-color); }
@@ -250,6 +268,7 @@ class ListenCard extends HTMLElement {
     if (!c) return;
     c.innerHTML = "";
     if (!eid) { c.innerHTML = `<div class="hint">Keine Liste vorhanden. Lege unten eine neue an.</div>`; this._cur = null; return; }
+    if (this._detailUid) { this._cur = null; this._renderDetail(eid, this._detailUid); return; }
 
     const kopf = document.createElement("div");
     kopf.className = "kopf";
@@ -336,6 +355,11 @@ class ListenCard extends HTMLElement {
     if (done) box.innerHTML = `<ha-icon icon="mdi:check"></ha-icon>`;
     const txt = document.createElement("span"); txt.className = "txt"; txt.textContent = item.summary;
     li.appendChild(box); li.appendChild(txt);
+    // Details-Icon (öffnet Detailseite; verhindert das Abhaken)
+    const info = document.createElement("button"); info.className = "info"; info.title = "Details";
+    info.innerHTML = `<ha-icon icon="mdi:information-outline"></ha-icon>`;
+    info.addEventListener("click", (e) => { e.stopPropagation(); this._openDetail(item.uid); });
+    li.appendChild(info);
     li.addEventListener("click", () => this._toggle(eid, item, done));
     return li;
   }
@@ -368,8 +392,90 @@ class ListenCard extends HTMLElement {
     this._fetchSelected();
   }
 
+  // ---- Detailseite ----
+  _openDetail(uid) { this._detailUid = uid; this._renderSelected(); }
+  _closeDetail() { this._detailUid = null; this._renderSelected(); }
+
+  _parseDesc(desc) {
+    const meta = { creator: null, remind: null, note: "" };
+    const noteLines = [];
+    for (const ln of (desc || "").split("\n")) {
+      const mV = ln.match(/^Von:\s*(.+)$/);
+      const mR = ln.match(/^Erinnerung:\s*(.+)$/);
+      if (mV) meta.creator = mV[1].trim();
+      else if (mR) meta.remind = mR[1].trim();
+      else noteLines.push(ln);
+    }
+    meta.note = noteLines.join("\n").trim();
+    return meta;
+  }
+  _serializeDesc(meta) {
+    const parts = [];
+    if (meta.creator) parts.push("Von: " + meta.creator);
+    if (meta.remind) parts.push("Erinnerung: " + meta.remind);
+    if (meta.note) parts.push(meta.note);
+    return parts.join("\n");
+  }
+
+  _renderDetail(eid, uid) {
+    const c = this._contentEl;
+    const item = (this._items[eid] || []).find((x) => x.uid === uid);
+    if (!item) { this._detailUid = null; this._renderSelected(); return; }
+    const meta = this._parseDesc(item.description || "");
+    const dueVal = item.due ? String(item.due).slice(0, 10) : "";
+    let remindVal = "";
+    if (meta.remind) { const d = new Date(meta.remind); if (!isNaN(d)) remindVal = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); }
+
+    const wrap = document.createElement("div"); wrap.className = "detail";
+    wrap.innerHTML = `
+      <div class="dhead">
+        <button class="dback" title="Zurück"><ha-icon icon="mdi:arrow-left"></ha-icon></button>
+        <span class="dtitle">Details</span>
+      </div>
+      <label class="dfield"><span>Titel</span><input type="text" class="dname"></label>
+      <div class="dfield"><span>Angelegt von</span><div class="dcreator"></div></div>
+      <label class="dfield"><span>Fällig am</span><input type="date" class="ddue"></label>
+      <label class="dfield"><span>Erinnerung (Push)</span><input type="datetime-local" class="dremind"></label>
+      <div class="dactions">
+        <button class="dsave">Speichern</button>
+        <button class="ddelete">Eintrag löschen</button>
+      </div>`;
+    wrap.querySelector(".dname").value = item.summary;
+    wrap.querySelector(".dcreator").textContent = meta.creator || "unbekannt";
+    wrap.querySelector(".ddue").value = dueVal;
+    wrap.querySelector(".dremind").value = remindVal;
+
+    wrap.querySelector(".dback").addEventListener("click", () => this._closeDetail());
+    wrap.querySelector(".dsave").addEventListener("click", () => {
+      const name = wrap.querySelector(".dname").value.trim();
+      const due = wrap.querySelector(".ddue").value;
+      const remindLocal = wrap.querySelector(".dremind").value;
+      this._saveDetail(eid, item, meta, name, due, remindLocal);
+    });
+    wrap.querySelector(".ddelete").addEventListener("click", () => {
+      if (confirm(`Eintrag „${item.summary}" löschen?`)) {
+        this._hass.callService("todo", "remove_item", { item: uid }, { entity_id: eid });
+        this._detailUid = null; setTimeout(() => this._fetchSelected(), 300); this._renderSelected();
+      }
+    });
+    c.appendChild(wrap);
+  }
+
+  _saveDetail(eid, item, meta, name, due, remindLocal) {
+    const data = { item: item.uid };
+    if (name && name !== item.summary) data.rename = name;
+    data.due_date = due || null; // leer -> löschen
+    const newMeta = { creator: meta.creator, note: meta.note, remind: null };
+    if (remindLocal) { const d = new Date(remindLocal); if (!isNaN(d)) newMeta.remind = d.toISOString(); }
+    data.description = this._serializeDesc(newMeta);
+    this._hass.callService("todo", "update_item", data, { entity_id: eid });
+    this._detailUid = null;
+    this._renderSelected();
+    setTimeout(() => this._fetchSelected(), 400);
+  }
+
   // ---- Auswahl / Sortierung ----
-  _selectList(eid) { this._selected = eid; this._saveSelected(); this._sortMode = false; this._itemSort = false; this.hass = this._hass; }
+  _selectList(eid) { this._selected = eid; this._saveSelected(); this._sortMode = false; this._itemSort = false; this._detailUid = null; this.hass = this._hass; }
   _toggleSort() { this._sortMode = !this._sortMode; this._selSig = null; this.hass = this._hass; }
   _moveList(index, dir) {
     const j = index + dir;
@@ -387,7 +493,11 @@ class ListenCard extends HTMLElement {
     setTimeout(() => this._fetchSelected(), 300);
   }
   _add(eid, summary) {
-    this._hass.callService("todo", "add_item", { item: summary }, { entity_id: eid });
+    const data = { item: summary };
+    const sf = (this._hass.states[eid] && this._hass.states[eid].attributes.supported_features) || 0;
+    const who = this._hass.user && this._hass.user.name;
+    if ((sf & 64) && who) data.description = "Von: " + who; // "angelegt von" automatisch
+    this._hass.callService("todo", "add_item", data, { entity_id: eid });
     setTimeout(() => this._fetchSelected(), 300);
   }
   _clearCompleted(eid) {
