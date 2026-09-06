@@ -16,7 +16,7 @@
  *   icons:
  *     todo.einkaufsliste: mdi:cart-outline
  */
-const LISTEN_CARD_VERSION = "1.3.0";
+const LISTEN_CARD_VERSION = "1.4.0";
 
 class ListenCard extends HTMLElement {
   setConfig(config) {
@@ -31,6 +31,7 @@ class ListenCard extends HTMLElement {
     this._order = this._loadOrder();       // gemerkte Reihenfolge (oder null)
     this._selected = this._loadSelected();
     this._sortMode = false;
+    this._itemSort = false;
     this._built = false;
     this._selSig = null;
     this._contentSig = {};
@@ -146,6 +147,16 @@ class ListenCard extends HTMLElement {
       .clear { color:var(--secondary-text-color); font-size:0.8rem; padding:6px 2px 2px; cursor:pointer; text-align:right; }
       .clear:hover { color: var(--error-color, #db4437); }
       .hint { color:var(--secondary-text-color); font-size:0.9rem; padding:8px 2px; }
+      .kopf .itemsort { margin-left:auto; border:none; background:transparent; color:var(--secondary-text-color); cursor:pointer; padding:2px 4px; line-height:1; }
+      .kopf .itemsort.on { color: var(--primary-color); }
+      .kopf .itemsort ha-icon { --mdc-icon-size:22px; }
+      summary .clearIcon { margin-left:auto; border:none; background:transparent; color:var(--secondary-text-color); cursor:pointer; padding:0 2px; line-height:1; }
+      summary .clearIcon:hover { color: var(--error-color,#db4437); }
+      summary .clearIcon ha-icon { --mdc-icon-size:18px; }
+      li.sortrow { justify-content:space-between; cursor:default; }
+      li.sortrow .arrows { display:flex; gap:2px; flex:0 0 auto; }
+      li.sortrow .mv { border:none; background:transparent; color:var(--primary-color); cursor:pointer; font-size:1rem; padding:2px 8px; line-height:1; }
+      li.sortrow .mv:disabled { color:var(--disabled-text-color,#666); cursor:default; }
 
       .neueListe { display:flex; align-items:center; gap:8px; padding: 12px 16px 0; margin-top:8px;
                    border-top:1px solid var(--divider-color); }
@@ -244,6 +255,13 @@ class ListenCard extends HTMLElement {
     kopf.className = "kopf";
     kopf.innerHTML = `<ha-icon icon="${this._icon(eid)}"></ha-icon><span></span>`;
     kopf.querySelector("span").textContent = this._name(eid);
+    // Umschalter: Einträge sortieren
+    const isortBtn = document.createElement("button");
+    isortBtn.className = "itemsort" + (this._itemSort ? " on" : "");
+    isortBtn.title = this._itemSort ? "Sortieren beenden" : "Einträge sortieren";
+    isortBtn.innerHTML = `<ha-icon icon="${this._itemSort ? "mdi:check" : "mdi:swap-vertical"}"></ha-icon>`;
+    isortBtn.addEventListener("click", () => { this._itemSort = !this._itemSort; this._renderSelected(); });
+    kopf.appendChild(isortBtn);
 
     const addRow = document.createElement("div");
     addRow.className = "add";
@@ -257,15 +275,15 @@ class ListenCard extends HTMLElement {
 
     const details = document.createElement("details"); details.className = "fertig";
     const summary = document.createElement("summary");
-    summary.innerHTML = `<ha-icon class="chev" icon="mdi:chevron-right"></ha-icon><span class="label">Erledigt</span>`;
+    summary.innerHTML = `<ha-icon class="chev" icon="mdi:chevron-right"></ha-icon><span class="label">Erledigt</span><button class="clearIcon" title="Alle erledigten löschen"><ha-icon icon="mdi:trash-can-outline"></ha-icon></button>`;
+    const clearIcon = summary.querySelector(".clearIcon");
+    clearIcon.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); this._clearCompleted(eid); });
     const ulFertig = document.createElement("ul"); ulFertig.className = "erledigt";
-    const clear = document.createElement("div"); clear.className = "clear"; clear.textContent = "Erledigte löschen";
-    details.appendChild(summary); details.appendChild(ulFertig); details.appendChild(clear);
+    details.appendChild(summary); details.appendChild(ulFertig);
 
     const doAdd = () => { const v = input.value.trim(); if (v) { this._add(eid, v); input.value = ""; input.focus(); } };
     addBtn.addEventListener("click", doAdd);
     input.addEventListener("keydown", (e) => { if (e.key === "Enter") doAdd(); });
-    clear.addEventListener("click", () => this._clearCompleted(eid));
 
     c.appendChild(kopf); c.appendChild(addRow); c.appendChild(ulAktiv); c.appendChild(details);
     this._cur = { eid, ulAktiv, ulFertig, details, label: summary.querySelector(".label") };
@@ -300,6 +318,8 @@ class ListenCard extends HTMLElement {
       const leer = document.createElement("div");
       leer.className = "leer"; leer.textContent = "Keine offenen Punkte 🎉";
       s.ulAktiv.appendChild(leer);
+    } else if (this._itemSort) {
+      aktiv.forEach((it, idx) => s.ulAktiv.appendChild(this._sortRow(s.eid, it, idx, aktiv.length)));
     } else {
       for (const it of aktiv) s.ulAktiv.appendChild(this._row(s.eid, it, false));
     }
@@ -320,8 +340,36 @@ class ListenCard extends HTMLElement {
     return li;
   }
 
+  _sortRow(eid, item, idx, n) {
+    const li = document.createElement("li"); li.className = "sortrow";
+    const txt = document.createElement("span"); txt.className = "txt"; txt.textContent = item.summary;
+    const arrows = document.createElement("span"); arrows.className = "arrows";
+    const up = document.createElement("button"); up.className = "mv"; up.textContent = "▲"; up.title = "nach oben";
+    up.disabled = idx === 0; up.addEventListener("click", () => this._moveItem(eid, item, -1));
+    const dn = document.createElement("button"); dn.className = "mv"; dn.textContent = "▼"; dn.title = "nach unten";
+    dn.disabled = idx === n - 1; dn.addEventListener("click", () => this._moveItem(eid, item, 1));
+    arrows.appendChild(up); arrows.appendChild(dn);
+    li.appendChild(txt); li.appendChild(arrows);
+    return li;
+  }
+
+  async _moveItem(eid, item, dir) {
+    const aktiv = (this._items[eid] || []).filter((x) => x.status !== "completed");
+    const i = aktiv.findIndex((x) => x.uid === item.uid);
+    if (i < 0) return;
+    const j = i + dir;
+    if (j < 0 || j >= aktiv.length) return;
+    const msg = { type: "todo/item/move", entity_id: eid, uid: item.uid };
+    let prev; // uid des Eintrags, der danach VOR dem verschobenen stehen soll
+    if (dir < 0) { if (i >= 2) prev = aktiv[i - 2].uid; }  // sonst an den Anfang
+    else { prev = aktiv[i + 1].uid; }
+    if (prev) msg.previous_uid = prev;
+    try { await this._hass.callWS(msg); } catch (e) { console.error("Listen-Card: Verschieben fehlgeschlagen", e); }
+    this._fetchSelected();
+  }
+
   // ---- Auswahl / Sortierung ----
-  _selectList(eid) { this._selected = eid; this._saveSelected(); this._sortMode = false; this.hass = this._hass; }
+  _selectList(eid) { this._selected = eid; this._saveSelected(); this._sortMode = false; this._itemSort = false; this.hass = this._hass; }
   _toggleSort() { this._sortMode = !this._sortMode; this._selSig = null; this.hass = this._hass; }
   _moveList(index, dir) {
     const j = index + dir;
