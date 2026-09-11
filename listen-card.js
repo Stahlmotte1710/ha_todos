@@ -16,7 +16,7 @@
  *   icons:
  *     todo.einkaufsliste: mdi:cart-outline
  */
-const LISTEN_CARD_VERSION = "1.7.0";
+const LISTEN_CARD_VERSION = "1.8.0";
 
 class ListenCard extends HTMLElement {
   setConfig(config) {
@@ -26,6 +26,7 @@ class ListenCard extends HTMLElement {
     if (!this._auto && (!this._fixed || !this._fixed.length)) {
       throw new Error("Bitte 'entities' angeben oder 'show_all: true' setzen.");
     }
+    this._exclude = config.exclude ? [...config.exclude] : [];
     this._configOrder = config.order || null;
     this._items = {};
     this._order = this._loadOrder();       // gemerkte Reihenfolge (oder null)
@@ -47,7 +48,8 @@ class ListenCard extends HTMLElement {
   _saveSelected() { if (this._selected) this._lsSet("listenCardSelected", this._selected); }
 
   _available(hass) {
-    if (this._auto) return Object.keys(hass.states).filter((e) => e.startsWith("todo."));
+    if (this._auto) return Object.keys(hass.states)
+      .filter((e) => e.startsWith("todo.") && !this._exclude.includes(e));
     return this._fixed.filter((e) => hass.states[e]);
   }
   _name(eid) {

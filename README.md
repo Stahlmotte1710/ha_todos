@@ -48,6 +48,7 @@ icons:
 |------------|--------|----------------------------------------------------------|
 | `show_all` | bool   | Alle `todo.*`‑Listen automatisch anzeigen                |
 | `entities` | Liste  | Feste Auswahl an Listen (statt `show_all`)               |
+| `exclude`  | Liste  | Listen, die bei `show_all` ausgeblendet werden           |
 | `entity`   | String | Einzelne Liste                                           |
 | `order`    | Liste  | Standard‑Reihenfolge der Listen                          |
 | `icons`    | Map    | Icon je Liste (Standard `mdi:format-list-checks`)        |
@@ -116,6 +117,7 @@ actions:
 
 ## Changelog
 
+- **1.8.0** – Neue Option `exclude` (Listen im `show_all`-Modus ausblenden)
 - **1.7.0** – Größere Zeilen/Schrift der Einträge; haptisches Feedback beim Abhaken (über die Companion‑App)
 - **1.6.0** – Detail‑Dialog stabil (kein Neu‑Rendern bei offener Detailseite); Fällig‑Badge + Erinnerungs‑Icon in der Zeile
 - **1.5.0** – Detailseite je Eintrag (angelegt von, Fällig‑Datum, Erinnerung)
