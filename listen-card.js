@@ -16,7 +16,7 @@
  *   icons:
  *     todo.einkaufsliste: mdi:cart-outline
  */
-const LISTEN_CARD_VERSION = "1.6.0";
+const LISTEN_CARD_VERSION = "1.7.0";
 
 class ListenCard extends HTMLElement {
   setConfig(config) {
@@ -134,12 +134,12 @@ class ListenCard extends HTMLElement {
       .add input:focus { border-bottom-color: var(--primary-color); }
       .add button { background:none; border:none; color:var(--primary-color); cursor:pointer; font-size:1.6rem; line-height:1; padding:0 6px; }
       ul { list-style:none; margin:0; padding:0; }
-      li { display:flex; align-items:center; gap:12px; padding:9px 2px; cursor:pointer; }
-      li .box { width:19px; height:19px; border:2px solid var(--secondary-text-color); border-radius:4px;
+      li { display:flex; align-items:center; gap:12px; padding:12px 2px; cursor:pointer; }
+      li .box { width:22px; height:22px; border:2px solid var(--secondary-text-color); border-radius:4px;
                 flex:0 0 auto; display:flex; align-items:center; justify-content:center; box-sizing:border-box; }
       li.done .box { background:var(--primary-color); border-color:var(--primary-color); color:var(--text-primary-color, #fff); }
       li.done .txt { text-decoration:line-through; color:var(--secondary-text-color); }
-      .box ha-icon { --mdc-icon-size:15px; }
+      .box ha-icon { --mdc-icon-size:17px; }
       details { margin: 2px 0 4px; }
       summary { cursor:pointer; color:var(--secondary-text-color); font-size:0.9rem; padding:8px 2px;
                 user-select:none; list-style:none; display:flex; align-items:center; gap:6px; }
@@ -160,7 +160,7 @@ class ListenCard extends HTMLElement {
       li.sortrow .arrows { display:flex; gap:2px; flex:0 0 auto; }
       li.sortrow .mv { border:none; background:transparent; color:var(--primary-color); cursor:pointer; font-size:1rem; padding:2px 8px; line-height:1; }
       li.sortrow .mv:disabled { color:var(--disabled-text-color,#666); cursor:default; }
-      li .txt { flex:1; }
+      li .txt { flex:1; font-size:1.08rem; line-height:1.3; }
       li .info { border:none; background:transparent; color:var(--secondary-text-color); cursor:pointer; padding:0 2px; flex:0 0 auto; }
       li .info ha-icon { --mdc-icon-size:20px; }
       li .info:hover { color: var(--primary-color); }
@@ -522,8 +522,19 @@ class ListenCard extends HTMLElement {
     this._selSig = null; this.hass = this._hass;
   }
 
+  // haptisches Feedback über die Companion-App (feuert das HA-"haptic"-Event)
+  // gültige Typen: success | warning | failure | light | medium | heavy | selection
+  _haptic(type = "light") {
+    try {
+      const ev = new Event("haptic", { bubbles: true, composed: true });
+      ev.detail = type;
+      this.dispatchEvent(ev);
+    } catch (e) {}
+  }
+
   // ---- Mutationen ----
   _toggle(eid, item, done) {
+    this._haptic(done ? "light" : "success"); // abhaken = "success", wieder aufmachen = "light"
     this._hass.callService("todo", "update_item",
       { item: item.uid, status: done ? "needs_action" : "completed" }, { entity_id: eid });
     setTimeout(() => this._fetchSelected(), 300);

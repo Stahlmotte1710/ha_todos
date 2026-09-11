@@ -116,6 +116,7 @@ actions:
 
 ## Changelog
 
+- **1.7.0** – Größere Zeilen/Schrift der Einträge; haptisches Feedback beim Abhaken (über die Companion‑App)
 - **1.6.0** – Detail‑Dialog stabil (kein Neu‑Rendern bei offener Detailseite); Fällig‑Badge + Erinnerungs‑Icon in der Zeile
 - **1.5.0** – Detailseite je Eintrag (angelegt von, Fällig‑Datum, Erinnerung)
 - **1.4.0** – Einträge sortieren; erledigte mit einem Klick löschen
